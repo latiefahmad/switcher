@@ -91,16 +91,23 @@ class PanelProvider {
             case 'saveProfile': {
                 const data = msg.payload;
                 try {
+                    let savedProfile;
                     if (data.id) {
-                        await this.profileManager.updateProfile(data.id, data);
+                        savedProfile = await this.profileManager.updateProfile(data.id, data);
                     }
                     else {
-                        await this.profileManager.addProfile(data);
+                        savedProfile = await this.profileManager.addProfile(data);
+                    }
+                    // If the profile we just updated is the active one, re-apply it to the system
+                    const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri.toString();
+                    const activeId = this.profileManager.getActiveProfileId(workspaceUri);
+                    if (savedProfile.id === activeId) {
+                        await this.onSwitchProfile(savedProfile);
                     }
                     await this.sendProfiles();
                     this.panel?.webview.postMessage({
                         type: 'saveSuccess',
-                        payload: { message: data.id ? 'Profile updated!' : 'Profile added!' },
+                        payload: { message: data.id ? 'Profile updated & applied!' : 'Profile added!' },
                     });
                 }
                 catch (err) {
@@ -180,6 +187,59 @@ class PanelProvider {
                 const { workspaceUri } = msg.payload;
                 await this.profileManager.unbindWorkspace(workspaceUri);
                 await this.sendProfiles();
+                break;
+            }
+            case 'copyProfilePublicKey': {
+                const { id } = msg.payload;
+                const profile = this.profileManager.getProfileById(id);
+                if (profile && profile.sshKeyPath) {
+                    try {
+                        const { SshConfigManager } = require('../sshConfigManager');
+                        const sshManager = new SshConfigManager();
+                        const pubKey = sshManager.getPublicKey(profile.sshKeyPath);
+                        if (pubKey) {
+                            await vscode.env.clipboard.writeText(pubKey);
+                            vscode.window.showInformationMessage('📋 SSH Public Key copied to clipboard! Paste it in GitHub SSH Keys.');
+                        }
+                        else {
+                            vscode.window.showErrorMessage('Could not find public key file (.pub) for this path.');
+                        }
+                    }
+                    catch (err) {
+                        vscode.window.showErrorMessage(`Failed to read public key: ${err.message}`);
+                    }
+                }
+                break;
+            }
+            case 'generateSshKey': {
+                const { id, label, email } = msg.payload;
+                try {
+                    // Initialize a temporary SSH config manager to run the command
+                    const { SshConfigManager } = require('../sshConfigManager');
+                    const sshManager = new SshConfigManager();
+                    const result = await sshManager.generateSshKey(label, email);
+                    this.panel?.webview.postMessage({
+                        type: 'sshKeyGenerated',
+                        payload: {
+                            privateKeyPath: result.privateKeyPath,
+                            publicKeyContent: result.publicKeyContent
+                        },
+                    });
+                    vscode.window.showInformationMessage(`✅ SSH Key generated successfully for profile "${label}".`);
+                }
+                catch (err) {
+                    vscode.window.showErrorMessage(`Failed to generate SSH key: ${err.message}`);
+                    this.panel?.webview.postMessage({
+                        type: 'error',
+                        payload: { message: `Failed to generate SSH Key: ${err.message}` },
+                    });
+                }
+                break;
+            }
+            case 'copyToClipboard': {
+                const { text, message } = msg.payload;
+                await vscode.env.clipboard.writeText(text);
+                vscode.window.showInformationMessage(message || 'Copied to clipboard!');
                 break;
             }
         }
@@ -537,8 +597,17 @@ class PanelProvider {
         <div class="form-row">
           <input class="form-control mono" id="fSshKeyPath" placeholder="~/.ssh/id_rsa_work" />
           <button class="btn btn-ghost" onclick="browseSshKey()">Browse</button>
+          <button class="btn btn-ghost" onclick="generateSshKey()" id="genSshBtn">⚡ Auto Gen</button>
         </div>
-        <p class="form-hint">Optional. Enables SSH switching for git push/pull.</p>
+        <p class="form-hint">Optional. Enables SSH switching. Click "Auto Gen" to automatically create a secure key.</p>
+      </div>
+
+      <div id="genSshResult" style="display:none; margin-top:12px; padding:12px; background:var(--surface2); border:1px solid var(--green); border-radius:8px;">
+        <p style="font-size:12px; color:var(--green); font-weight:600; margin-bottom:6px;">✅ SSH Key Created! Copy the public key below:</p>
+        <textarea id="pubKeyContent" class="form-control mono" style="height:80px; font-size:11px; resize:none;" readonly></textarea>
+        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
+          <button class="btn btn-success btn-sm" onclick="copyPubKeyFromForm()">📋 Copy & Go to GitHub</button>
+        </div>
       </div>
 
       <div class="form-actions">
@@ -574,13 +643,29 @@ class PanelProvider {
         case 'sshKeySelected':
           document.getElementById('fSshKeyPath').value = msg.payload.path;
           break;
+        case 'sshKeyGenerated': {
+          const btn = document.getElementById('genSshBtn');
+          btn.disabled = false;
+          btn.textContent = '⚡ Auto Gen';
+          
+          document.getElementById('fSshKeyPath').value = msg.payload.privateKeyPath;
+          document.getElementById('pubKeyContent').value = msg.payload.publicKeyContent;
+          document.getElementById('genSshResult').style.display = 'block';
+          break;
+        }
         case 'saveSuccess':
           closeForm();
           showToast(msg.payload.message, 'success');
           break;
-        case 'error':
+        case 'error': {
+          const btn = document.getElementById('genSshBtn');
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = '⚡ Auto Gen';
+          }
           showToast(msg.payload.message, 'error');
           break;
+        }
       }
     });
 
@@ -694,10 +779,22 @@ class PanelProvider {
 
         <div class="section">
           <div class="section-title">SSH Configuration</div>
-          <div class="info-item">
+          <div class="info-item" style="margin-bottom:12px">
             <label>SSH Key Path</label>
             <div class="value mono">\${p.sshKeyPath ? esc(p.sshKeyPath) : '— Not configured'}</div>
           </div>
+          \${p.sshKeyPath 
+            ? \`
+              <div class="info-item" id="pubKeySection-\${p.id}">
+                <label>SSH Public Key (Add this to your GitHub settings)</label>
+                <div style="display:flex; gap:8px;">
+                  <button class="btn btn-ghost btn-sm" onclick="copyPublicKey('\${p.id}')">📋 Copy Public Key</button>
+                  <a href="https://github.com/settings/keys" target="_blank" class="btn btn-ghost btn-sm" style="text-decoration:none; color:var(--text)">🌐 Open GitHub Keys</a>
+                </div>
+              </div>
+            \`
+            : ''
+          }
         </div>
 
         <div class="section">
@@ -861,6 +958,52 @@ class PanelProvider {
           year: 'numeric', month: 'short', day: 'numeric'
         });
       } catch { return iso; }
+    }
+
+    // SSH Key Generation from Form
+    function generateSshKey() {
+      const label = document.getElementById('fLabel').value.trim();
+      const email = document.getElementById('fGitEmail').value.trim();
+      
+      if (!label || !email) {
+        showToast('Please fill in Profile Name and Git Email first to generate a key.', 'error');
+        return;
+      }
+
+      const btn = document.getElementById('genSshBtn');
+      btn.disabled = true;
+      btn.textContent = 'Generating…';
+
+      vscode.postMessage({
+        type: 'generateSshKey',
+        payload: { label, email }
+      });
+    }
+
+    function copyPubKeyFromForm() {
+      const pubKey = document.getElementById('pubKeyContent').value;
+      vscode.postMessage({
+        type: 'copyToClipboard',
+        payload: { 
+          text: pubKey, 
+          message: 'Public key copied! opening GitHub settings...' 
+        }
+      });
+      // Delay open window
+      window.open('https://github.com/settings/keys', '_blank');
+    }
+
+    function copyPublicKey(profileId) {
+      const p = profiles.find(x => x.id === profileId);
+      if (!p) return;
+      
+      // Let's get the public key content. We can read it in Node.
+      // So we will request the backend to read it and copy it.
+      // But we can trigger a command. Let's send a command to copy public key:
+      vscode.postMessage({
+        type: 'copyProfilePublicKey',
+        payload: { id: profileId }
+      });
     }
 
     function showToast(msg, type = 'success') {

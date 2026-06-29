@@ -57,6 +57,7 @@ class CommandRegistry {
             ['githubSwitcher.testConnection', () => this.testConnection()],
             ['githubSwitcher.bindWorkspace', () => this.bindWorkspace()],
             ['githubSwitcher.unbindWorkspace', () => this.unbindWorkspace()],
+            ['githubSwitcher.convertToSsh', () => this.convertRemoteToSsh()],
         ];
         for (const [id, handler] of cmds) {
             this.context.subscriptions.push(vscode.commands.registerCommand(id, handler));
@@ -67,7 +68,11 @@ class CommandRegistry {
         const workspaceUri = this.getCurrentWorkspaceUri();
         const active = this.profileManager.getActiveProfile(workspaceUri);
         const profiles = this.profileManager.getProfiles();
-        // ── Build QuickPick items ──────────────────────────────────────────────────
+        // Detect remote type for current workspace
+        const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const remoteType = cwd ? await this.gitConfig.getRemoteType(cwd) : 'none';
+        const remoteUrl = cwd ? await this.gitConfig.getRemoteUrl(cwd) : undefined;
+        // ── Build QuickPick items ─────────────────────────────────────────────────
         const items = [];
         if (active) {
             // ── Active profile detail block ─────────────────────────────────────────
@@ -104,6 +109,19 @@ class CommandRegistry {
                 kind: vscode.QuickPickItemKind.Default,
                 action: 'noop',
             });
+            // Remote URL info
+            if (remoteUrl) {
+                const remoteIcon = remoteType === 'ssh' ? '$(lock)' : '$(globe)';
+                const remoteLabel = remoteType === 'ssh'
+                    ? `$(lock) SSH remote`
+                    : `$(globe) HTTPS remote — may cause auth issues with multiple accounts`;
+                items.push({
+                    label: remoteLabel,
+                    description: remoteType === 'https' ? '⚠ click Actions → Convert to SSH to fix' : '',
+                    kind: vscode.QuickPickItemKind.Default,
+                    action: 'noop',
+                });
+            }
             if (active.boundWorkspaces.length > 0) {
                 items.push({
                     label: `$(link) Bound to ${active.boundWorkspaces.length} workspace(s)`,
@@ -141,6 +159,14 @@ class CommandRegistry {
                     label: `$(link-external) Unbind Workspace`,
                     description: `Remove auto-switch for this folder`,
                     action: 'unbind',
+                });
+            }
+            // Show SSH conversion option if remote is HTTPS
+            if (remoteType === 'https') {
+                items.push({
+                    label: `$(arrow-right) Convert Remote to SSH`,
+                    description: `Fix push/pull auth for multi-account — changes origin URL to git@github.com`,
+                    action: 'convertSsh',
                 });
             }
         }
@@ -197,6 +223,9 @@ class CommandRegistry {
             case 'unbind':
                 await this.unbindWorkspace();
                 break;
+            case 'convertSsh':
+                await this.convertRemoteToSsh();
+                break;
             case 'applyProfile': {
                 if (pick.profileId) {
                     const profile = this.profileManager.getProfileById(pick.profileId);
@@ -207,7 +236,39 @@ class CommandRegistry {
             }
         }
     }
-    // ─── Switch Profile (QuickPick list) ───────────────────────────────────────
+    // ─── Convert Remote to SSH ─────────────────────────────────────────────────
+    async convertRemoteToSsh() {
+        const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!cwd) {
+            vscode.window.showWarningMessage('No workspace folder open.');
+            return;
+        }
+        const remoteUrl = await this.gitConfig.getRemoteUrl(cwd);
+        if (!remoteUrl) {
+            vscode.window.showWarningMessage('No git remote found in this workspace.');
+            return;
+        }
+        const httpsMatch = remoteUrl.match(/^https:\/\/github\.com\/([^\/]+)\/(.+?)(?:\.git)?$/);
+        if (!httpsMatch) {
+            vscode.window.showInformationMessage(`Remote is already SSH or not a GitHub HTTPS URL: ${remoteUrl}`);
+            return;
+        }
+        const [, org, repo] = httpsMatch;
+        const sshUrl = `git@github.com:${org}/${repo}.git`;
+        const confirm = await vscode.window.showInformationMessage(`Convert remote from HTTPS to SSH?\n\nFrom: ${remoteUrl}\nTo:   ${sshUrl}\n\nThis fixes push/pull auth when using multiple GitHub accounts.`, { modal: true }, 'Convert');
+        if (confirm !== 'Convert')
+            return;
+        try {
+            const { exec } = require('child_process');
+            const { promisify } = require('util');
+            const execAsync = promisify(exec);
+            await execAsync(`git -C "${cwd}" remote set-url origin "${sshUrl}"`);
+            vscode.window.showInformationMessage(`✅ Remote converted to SSH: ${sshUrl}\n\nPush/pull will now use your SSH key for auth.`);
+        }
+        catch (err) {
+            vscode.window.showErrorMessage(`Failed to convert remote: ${err instanceof Error ? err.message : String(err)}`);
+        }
+    }
     async switchProfile() {
         const profiles = this.profileManager.getProfiles();
         if (profiles.length === 0) {
@@ -296,21 +357,58 @@ class CommandRegistry {
         const active = this.profileManager.getActiveProfile(workspaceUri);
         const profileToTest = active ?? profiles[0];
         const token = await this.profileManager.getProfileToken(profileToTest);
-        if (!token) {
-            vscode.window.showWarningMessage(`Profile "${profileToTest.label}" has no GitHub token. Add one in Manage Profiles.`);
-            return;
-        }
         await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
             title: `Testing connection for ${profileToTest.label}…`,
             cancellable: false,
         }, async () => {
-            const result = await (0, githubApi_1.testGitHubConnection)(token);
-            if (result.success) {
-                vscode.window.showInformationMessage(result.message);
+            let message = '';
+            let success = true;
+            // 1. Test API Token if present
+            if (token) {
+                const apiResult = await (0, githubApi_1.testGitHubConnection)(token);
+                message += `API Connection: ${apiResult.message}\n`;
+                success = success && apiResult.success;
             }
             else {
-                vscode.window.showErrorMessage(result.message);
+                message += `API Connection: No GitHub token configured for API tests.\n`;
+            }
+            // 2. Test SSH Connection if present
+            if (profileToTest.sshKeyPath) {
+                message += '\n---\n';
+                try {
+                    const { exec } = require('child_process');
+                    const { promisify } = require('util');
+                    const execAsync = promisify(exec);
+                    // Normalize path to prevent SSH config syntax errors during manual run
+                    const path = require('path');
+                    const os = require('os');
+                    const keyPath = profileToTest.sshKeyPath
+                        .replace(/^~/, os.homedir())
+                        .replace(/\\/g, '/');
+                    // Force ssh to test using this specific key, ignoring agent
+                    const cmd = `ssh -o IdentitiesOnly=yes -o IdentityFile="${keyPath}" -o StrictHostKeyChecking=accept-new -T git@github.com`;
+                    await execAsync(cmd);
+                    message += `SSH Connection: Success! GitHub authenticated you via SSH.`;
+                }
+                catch (err) {
+                    const stderr = err.stderr || '';
+                    const stdout = err.stdout || '';
+                    const errorMsg = stdout + '\n' + stderr;
+                    if (errorMsg.includes('successfully authenticated')) {
+                        message += `SSH Connection: Success! (GitHub successfully authenticated you but does not provide shell access).`;
+                    }
+                    else {
+                        message += `SSH Connection Failed!\nError details:\n${errorMsg.trim()}`;
+                        success = false;
+                    }
+                }
+            }
+            if (success) {
+                vscode.window.showInformationMessage(message);
+            }
+            else {
+                vscode.window.showErrorMessage(message);
             }
         });
     }

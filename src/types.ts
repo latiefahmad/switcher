@@ -49,6 +49,11 @@ export type WebviewMessageType =
   | 'profilesUpdated'
   | 'activeProfileUpdated'
   | 'connectionResult'
+  | 'copyProfilePublicKey'
+  | 'generateSshKey'
+  | 'copyToClipboard'
+  | 'sshKeyGenerated'
+  | 'sshKeySelected'
   | 'error';
 
 export interface WebviewMessage {
