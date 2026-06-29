@@ -123,7 +123,14 @@ Jika repositorimu menggunakan HTTPS, koneksi multi-akun sering mengalami bentrok
 If this extension has helped you work faster and resolve authentication conflicts, consider buying me a coffee!
 Jika ekstensi ini membantu mempermudah pekerjaanmu, dukung pengembangannya lewat:
 
-* **Saweria**: [saweria.co/latiefahmad](https://saweria.co/latiefahmad)
-* **Trakteer**: [trakteer.id/latiefahmad/tip](https://trakteer.id/latiefahmad/tip)
+<p align="left">
+  <a href="https://saweria.co/latiefahmad" target="_blank">
+    <img src="https://img.shields.io/badge/SAWERIA-DUKUNG%20SAYA-orange?style=for-the-badge&labelColor=555555&color=fa6400" alt="Saweria" />
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://trakteer.id/latiefahmad/tip" target="_blank">
+    <img src="https://img.shields.io/badge/TRAKTEER-TRAKTIR%20KOPI-red?style=for-the-badge&logo=ko-fi&logoColor=white&labelColor=555555&color=cc1818" alt="Trakteer" />
+  </a>
+</p>
 
 Thank you for your support! / Terima kasih banyak atas dukungannya!
