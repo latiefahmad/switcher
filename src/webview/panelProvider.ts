@@ -11,7 +11,8 @@ export class PanelProvider {
   constructor(
     private context: vscode.ExtensionContext,
     private profileManager: ProfileManager,
-    private onSwitchProfile: (profile: GitHubProfile) => Promise<void>
+    private onSwitchProfile: (profile: GitHubProfile) => Promise<void>,
+    private onProfileDeleted?: () => void
   ) {}
 
   show(): void {
@@ -126,8 +127,23 @@ export class PanelProvider {
 
       case 'deleteProfile': {
         const { id } = msg.payload as { id: string };
-        await this.profileManager.deleteProfile(id);
-        await this.sendProfiles();
+        const profile = this.profileManager.getProfileById(id);
+        if (!profile) break;
+
+        const confirm = await vscode.window.showWarningMessage(
+          `Are you sure you want to delete the profile "${profile.label}"? This cannot be undone.`,
+          { modal: true },
+          'Delete'
+        );
+
+        if (confirm === 'Delete') {
+          await this.profileManager.deleteProfile(id);
+          await this.sendProfiles();
+          if (this.onProfileDeleted) {
+            this.onProfileDeleted();
+          }
+          vscode.window.showInformationMessage(`Profile "${profile.label}" deleted.`);
+        }
         break;
       }
 
@@ -253,6 +269,57 @@ export class PanelProvider {
         const { text, message } = msg.payload as { text: string; message: string };
         await vscode.env.clipboard.writeText(text);
         vscode.window.showInformationMessage(message || 'Copied to clipboard!');
+        break;
+      }
+
+      case 'exportProfiles': {
+        try {
+          const exportJson = await this.profileManager.exportProfilesData();
+          const uri = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(path.join(os.homedir(), 'github-profiles.json')),
+            filters: { 'JSON Files': ['json'] },
+            title: 'Export GitHub Profiles',
+          });
+
+          if (uri) {
+            const fs = require('fs') as typeof import('fs');
+            fs.writeFileSync(uri.fsPath, exportJson, 'utf8');
+            vscode.window.showInformationMessage('✅ Profiles exported successfully! Keep this file secure as it contains encrypted tokens.');
+          }
+        } catch (err: any) {
+          vscode.window.showErrorMessage(`Failed to export profiles: ${err.message}`);
+        }
+        break;
+      }
+
+      case 'importProfiles': {
+        try {
+          const uris = await vscode.window.showOpenDialog({
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            filters: { 'JSON Files': ['json'] },
+            title: 'Import GitHub Profiles',
+          });
+
+          if (uris && uris[0]) {
+            const fs = require('fs') as typeof import('fs');
+            const content = fs.readFileSync(uris[0].fsPath, 'utf8');
+            await this.profileManager.importProfilesData(content);
+            await this.sendProfiles();
+            
+            // If there's an active profile, re-apply it to the system just in case
+            const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri.toString();
+            const activeProfile = this.profileManager.getActiveProfile(workspaceUri);
+            if (activeProfile) {
+              await this.onSwitchProfile(activeProfile);
+            }
+
+            vscode.window.showInformationMessage('✅ GitHub Profiles imported successfully!');
+          }
+        } catch (err: any) {
+          vscode.window.showErrorMessage(`Failed to import profiles: ${err.message}`);
+        }
         break;
       }
     }
@@ -538,6 +605,8 @@ export class PanelProvider {
       <p>Manage and switch between multiple GitHub identities</p>
     </div>
     <div class="header-actions">
+      <button class="btn btn-ghost" onclick="exportProfiles()">📤 Export Profiles</button>
+      <button class="btn btn-ghost" onclick="importProfiles()">📥 Import Profiles</button>
       <button class="btn btn-primary" onclick="openForm()">
         + Add Profile
       </button>
@@ -858,8 +927,6 @@ export class PanelProvider {
     }
 
     function deleteProfile(id) {
-      const p = profiles.find(x => x.id === id);
-      if (!confirm(\`Delete profile "\${p?.label}"? This cannot be undone.\`)) return;
       vscode.postMessage({ type: 'deleteProfile', payload: { id } });
       selectedId = null;
       showWelcome();
@@ -1026,6 +1093,19 @@ export class PanelProvider {
       el.textContent = msg;
       document.body.appendChild(el);
       setTimeout(() => el.remove(), 3500);
+    }
+
+    // Export and Import Actions
+    function exportProfiles() {
+      if (profiles.length === 0) {
+        showToast('No profiles to export.', 'error');
+        return;
+      }
+      vscode.postMessage({ type: 'exportProfiles' });
+    }
+
+    function importProfiles() {
+      vscode.postMessage({ type: 'importProfiles' });
     }
 
     // Keyboard shortcuts

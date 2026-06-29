@@ -161,6 +161,72 @@ class ProfileManager {
         }
         await this.context.globalState.update(PROFILES_KEY, profiles);
     }
+    // ─── Export / Import ───────────────────────────────────────────────────────
+    /** Export profiles and their tokens as a JSON string */
+    async exportProfilesData() {
+        const profiles = this.getProfiles();
+        const exportData = await Promise.all(profiles.map(async (p) => {
+            const token = await this.getProfileToken(p);
+            return {
+                ...p,
+                token, // Include token in export package
+            };
+        }));
+        return JSON.stringify(exportData, null, 2);
+    }
+    /** Import profiles and save their tokens securely */
+    async importProfilesData(jsonContent) {
+        let imported;
+        try {
+            imported = JSON.parse(jsonContent);
+        }
+        catch {
+            throw new Error('Invalid JSON format.');
+        }
+        if (!Array.isArray(imported)) {
+            throw new Error('Import data must be an array of profiles.');
+        }
+        const currentProfiles = this.getProfiles();
+        for (const profileData of imported) {
+            // Validate basic structure
+            if (!profileData.label || !profileData.gitName || !profileData.gitEmail || !profileData.githubUsername) {
+                throw new Error(`Profile "${profileData.label || 'Unknown'}" is missing required fields.`);
+            }
+            // Check if profile ID already exists, if so generate a new ID to prevent collisons
+            let targetId = profileData.id;
+            let tokenKey = profileData.tokenSecretKey;
+            const exists = currentProfiles.some(p => p.id === targetId);
+            if (exists) {
+                // Generate new ID and token key to prevent overwriting existing active keys
+                targetId = crypto.randomUUID();
+                tokenKey = `githubSwitcher.token.${targetId}`;
+            }
+            const profile = {
+                id: targetId,
+                label: profileData.label,
+                gitName: profileData.gitName,
+                gitEmail: profileData.gitEmail,
+                githubUsername: profileData.githubUsername,
+                sshKeyPath: profileData.sshKeyPath,
+                tokenSecretKey: tokenKey,
+                boundWorkspaces: profileData.boundWorkspaces || [],
+                createdAt: profileData.createdAt || new Date().toISOString(),
+                lastUsedAt: profileData.lastUsedAt,
+            };
+            // Save token if included
+            if (profileData.token) {
+                await this.context.secrets.store(tokenKey, profileData.token);
+            }
+            const idx = currentProfiles.findIndex(p => p.id === targetId || p.label === profile.label);
+            if (idx !== -1) {
+                currentProfiles[idx] = profile; // Overwrite if name matches
+            }
+            else {
+                currentProfiles.push(profile); // Insert new
+            }
+        }
+        await this.context.globalState.update(PROFILES_KEY, currentProfiles);
+    }
 }
 exports.ProfileManager = ProfileManager;
 //# sourceMappingURL=profileManager.js.map

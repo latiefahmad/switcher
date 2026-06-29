@@ -54,6 +54,8 @@ export type WebviewMessageType =
   | 'copyToClipboard'
   | 'sshKeyGenerated'
   | 'sshKeySelected'
+  | 'exportProfiles'
+  | 'importProfiles'
   | 'error';
 
 export interface WebviewMessage {

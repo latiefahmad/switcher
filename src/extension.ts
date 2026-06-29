@@ -13,7 +13,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Create output channel first so errors are always visible
   outputChannel = vscode.window.createOutputChannel('GitHub Profile Switcher');
   context.subscriptions.push(outputChannel);
-  outputChannel.appendLine('[GitHub Profile Switcher] Activating v1.2.0...');
+  outputChannel.appendLine('[GitHub Profile Switcher] Activating v1.8.0...');
 
   try {
     // ── Initialize managers ──────────────────────────────────────────────────
@@ -30,6 +30,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       profileManager,
       async (profile) => {
         await commands.applyProfile(profile);
+      },
+      () => {
+        const active = profileManager.getActiveProfile(
+          vscode.workspace.workspaceFolders?.[0]?.uri.toString()
+        );
+        statusBar.update(active);
       }
     );
 
