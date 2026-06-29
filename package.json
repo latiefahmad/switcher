@@ -1,0 +1,158 @@
+{
+  "name": "github-profile-switcher",
+  "displayName": "GitHub Profile Switcher",
+  "description": "Easily switch between multiple GitHub profiles (user.name, user.email, SSH key, token) per workspace.",
+  "version": "1.2.0",
+  "publisher": "latief",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "github",
+    "git",
+    "profile",
+    "switch",
+    "account",
+    "ssh",
+    "token"
+  ],
+  "icon": "images/icon.png",
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/local/github-profile-switcher"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "githubSwitcher.showActiveProfile",
+        "title": "Show Active GitHub Profile",
+        "category": "GitHub Switcher",
+        "icon": "$(account)"
+      },
+      {
+        "command": "githubSwitcher.switchProfile",
+        "title": "Switch GitHub Profile",
+        "category": "GitHub Switcher",
+        "icon": "$(account)"
+      },
+      {
+        "command": "githubSwitcher.openPanel",
+        "title": "Manage GitHub Profiles",
+        "category": "GitHub Switcher",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "githubSwitcher.addProfile",
+        "title": "Add GitHub Profile",
+        "category": "GitHub Switcher",
+        "icon": "$(add)"
+      },
+      {
+        "command": "githubSwitcher.deleteProfile",
+        "title": "Delete GitHub Profile",
+        "category": "GitHub Switcher",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "githubSwitcher.testConnection",
+        "title": "Test GitHub Connection",
+        "category": "GitHub Switcher",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "githubSwitcher.bindWorkspace",
+        "title": "Bind Current Workspace to Profile",
+        "category": "GitHub Switcher",
+        "icon": "$(link)"
+      },
+      {
+        "command": "githubSwitcher.unbindWorkspace",
+        "title": "Unbind Current Workspace from Profile",
+        "category": "GitHub Switcher",
+        "icon": "$(link-external)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "githubSwitcher.switchProfile",
+        "key": "ctrl+shift+g ctrl+shift+s",
+        "mac": "cmd+shift+g cmd+shift+s"
+      },
+      {
+        "command": "githubSwitcher.openPanel",
+        "key": "ctrl+shift+g ctrl+shift+p",
+        "mac": "cmd+shift+g cmd+shift+p"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "githubSwitcher.showActiveProfile"
+        },
+        {
+          "command": "githubSwitcher.switchProfile"
+        },
+        {
+          "command": "githubSwitcher.openPanel"
+        },
+        {
+          "command": "githubSwitcher.addProfile"
+        },
+        {
+          "command": "githubSwitcher.deleteProfile"
+        },
+        {
+          "command": "githubSwitcher.testConnection"
+        },
+        {
+          "command": "githubSwitcher.bindWorkspace"
+        },
+        {
+          "command": "githubSwitcher.unbindWorkspace"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "GitHub Profile Switcher",
+      "properties": {
+        "githubSwitcher.applyGlobally": {
+          "type": "boolean",
+          "default": false,
+          "description": "Apply git config globally (--global) instead of per-repo"
+        },
+        "githubSwitcher.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show active profile in the status bar"
+        },
+        "githubSwitcher.autoSwitchOnWorkspaceOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically switch profile when opening a bound workspace"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.74.0",
+    "@typescript-eslint/eslint-plugin": "^5.59.1",
+    "@typescript-eslint/parser": "^5.59.1",
+    "@vscode/vsce": "^2.19.0",
+    "eslint": "^8.39.0",
+    "typescript": "^5.0.4"
+  },
+  "dependencies": {}
+}
