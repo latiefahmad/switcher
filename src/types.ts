@@ -56,6 +56,7 @@ export type WebviewMessageType =
   | 'sshKeySelected'
   | 'exportProfiles'
   | 'importProfiles'
+  | 'convertToSsh'
   | 'error';
 
 export interface WebviewMessage {

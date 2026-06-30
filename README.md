@@ -26,10 +26,10 @@ Easy-to-use extension to manage and switch between multiple GitHub identities wi
 - 🎨 **Premium UI** — Glassmorphism UI panel design with responsive micro-interactions.
 
 ### 🚀 Installation
-1. Download the latest VSIX file: [github-profile-switcher-1.8.3.vsix](https://github.com/latiefahmad/github-switcher/releases/download/v1.8.3/github-profile-switcher-1.8.3.vsix) (or visit [GitHub Releases](https://github.com/latiefahmad/github-switcher/releases)).
+1. Download the latest VSIX file: [github-profile-switcher-1.9.0.vsix](https://github.com/latiefahmad/github-switcher/releases/download/v1.9.0/github-profile-switcher-1.9.0.vsix) (or visit [GitHub Releases](https://github.com/latiefahmad/github-switcher/releases)).
 2. Open VSCode/Antigravity → go to Extensions (`Ctrl+Shift+X`).
 3. Click the `···` menu at the top-right of the Extensions panel → select **Install from VSIX...**.
-4. Choose the downloaded `github-profile-switcher-1.8.3.vsix` file.
+4. Choose the downloaded `github-profile-switcher-1.9.0.vsix` file.
 5. Reload the IDE if prompted.
 
 ### 📖 How to Use
@@ -69,10 +69,10 @@ Ekstensi sederhana untuk mengelola dan beralih di antara beberapa akun GitHub se
 - 🎨 **Premium UI** — Panel manajemen profil modern berbasis Glassmorphism dengan animasi micro-interaction.
 
 ### 🚀 Cara Install
-1. Download file VSIX versi terbaru: [github-profile-switcher-1.8.3.vsix](https://github.com/latiefahmad/github-switcher/releases/download/v1.8.3/github-profile-switcher-1.8.3.vsix) (atau kunjungi halaman [GitHub Releases](https://github.com/latiefahmad/github-switcher/releases))
+1. Download file VSIX versi terbaru: [github-profile-switcher-1.9.0.vsix](https://github.com/latiefahmad/github-switcher/releases/download/v1.9.0/github-profile-switcher-1.9.0.vsix) (atau kunjungi halaman [GitHub Releases](https://github.com/latiefahmad/github-switcher/releases))
 2. Buka VSCode / Antigravity → Extensions (`Ctrl+Shift+X`)
 3. Klik tombol `···` (Menu) di kanan atas panel Extensions → pilih **Install from VSIX...**
-4. Pilih file `github-profile-switcher-1.8.3.vsix` yang telah didownload.
+4. Pilih file `github-profile-switcher-1.9.0.vsix` yang telah didownload.
 5. Jalankan perintah `Developer: Reload Window` jika diperlukan.
 
 ### 📖 Cara Penggunaan

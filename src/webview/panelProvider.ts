@@ -4,6 +4,7 @@ import * as os from 'os';
 import { ProfileManager } from '../profileManager';
 import { GitHubProfile, WebviewMessage } from '../types';
 import { testGitHubConnection } from '../githubApi';
+import { GitConfigManager } from '../gitConfigManager';
 
 export class PanelProvider {
   private panel: vscode.WebviewPanel | undefined;
@@ -62,7 +63,8 @@ export class PanelProvider {
     if (!this.panel) return;
 
     const profiles = this.profileManager.getProfiles();
-    const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri.toString();
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    const workspaceUri = workspaceFolder?.uri.toString();
     const activeId = this.profileManager.getActiveProfileId(workspaceUri);
 
     // Map profiles with hasToken flag (don't send actual tokens to webview)
@@ -73,9 +75,30 @@ export class PanelProvider {
       })
     );
 
+    // Query active workspace repository remote info
+    let workspaceInfo = null;
+    if (workspaceFolder) {
+      const gitConfig = new GitConfigManager();
+      const cwd = workspaceFolder.uri.fsPath;
+      const isRepo = await gitConfig.isGitRepo(cwd);
+      if (isRepo) {
+        const remoteUrl = await gitConfig.getRemoteUrl(cwd);
+        const remoteType = await gitConfig.getRemoteType(cwd);
+        workspaceInfo = {
+          name: workspaceFolder.name,
+          remoteUrl,
+          remoteType
+        };
+      }
+    }
+
     this.panel?.webview.postMessage({
       type: 'profilesUpdated',
-      payload: { profiles: profilesWithMeta, activeId },
+      payload: { 
+        profiles: profilesWithMeta, 
+        activeId,
+        workspace: workspaceInfo
+      },
     });
   }
 
@@ -322,6 +345,48 @@ export class PanelProvider {
         }
         break;
       }
+
+      case 'convertToSsh': {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+          vscode.window.showWarningMessage('No workspace folder open.');
+          break;
+        }
+
+        const cwd = workspaceFolder.uri.fsPath;
+        const gitConfig = new GitConfigManager();
+        const remoteUrl = await gitConfig.getRemoteUrl(cwd);
+        if (!remoteUrl) {
+          vscode.window.showWarningMessage('No git remote found in this workspace.');
+          break;
+        }
+
+        const httpsMatch = remoteUrl.match(
+          /^https:\/\/github\.com\/([^\/]+)\/(.+?)(?:\.git)?$/
+        );
+        if (!httpsMatch) {
+          vscode.window.showInformationMessage(
+            `Remote is already SSH or not a GitHub HTTPS URL: ${remoteUrl}`
+          );
+          break;
+        }
+
+        const [, org, repo] = httpsMatch;
+        const sshUrl = `git@github.com:${org}/${repo}.git`;
+
+        try {
+          const { exec } = require('child_process') as typeof import('child_process');
+          const { promisify } = require('util') as typeof import('util');
+          const execAsync = promisify(exec);
+          await execAsync(`git -C "${cwd}" remote set-url origin "${sshUrl}"`);
+          
+          vscode.window.showInformationMessage(`✅ Remote converted to SSH: ${sshUrl}`);
+          await this.sendProfiles(); // Send updated workspace remote status back to webview
+        } catch (err: any) {
+          vscode.window.showErrorMessage(`Failed to convert remote: ${err.message}`);
+        }
+        break;
+      }
     }
   }
 
@@ -511,6 +576,35 @@ export class PanelProvider {
       word-break: break-all;
     }
     .value.mono { font-family: monospace; font-size: 12px; }
+
+    /* ── Warning Card ── */
+    .warning-card {
+      background: rgba(210, 153, 34, 0.08);
+      border: 1px solid rgba(210, 153, 34, 0.25);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .warning-card-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--yellow);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .warning-card-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+    .warning-card-actions {
+      display: flex;
+      gap: 8px;
+    }
 
     /* ── Connection Test Result ── */
     .conn-result {
@@ -705,6 +799,7 @@ export class PanelProvider {
     let profiles = [];
     let activeId = null;
     let selectedId = null;
+    let workspaceInfo = null;
 
     // ── Init ──────────────────────────────────────────────────────────────────
     window.addEventListener('load', () => {
@@ -717,6 +812,7 @@ export class PanelProvider {
         case 'profilesUpdated':
           profiles = msg.payload.profiles;
           activeId = msg.payload.activeId;
+          workspaceInfo = msg.payload.workspace;
           renderSidebar();
           if (selectedId) renderDetail(selectedId);
           break;
@@ -830,6 +926,23 @@ export class PanelProvider {
 
         <div id="connResult-\${p.id}"></div>
 
+        \${isActive && workspaceInfo && workspaceInfo.remoteType === 'https'
+          ? \`
+            <div class="warning-card">
+              <div class="warning-card-title">⚠️ HTTPS Remote Detected</div>
+              <div class="warning-card-desc">
+                Current workspace <strong>\${esc(workspaceInfo.name)}</strong> is using HTTPS remote:<br/>
+                <code style="word-break:break-all; font-size:11px;">\${esc(workspaceInfo.remoteUrl)}</code><br/>
+                This may cause authentication / credential conflicts when using multiple accounts.
+              </div>
+              <div class="warning-card-actions">
+                <button class="btn btn-primary btn-sm" onclick="convertToSsh()">⚡ Convert to SSH Remote</button>
+              </div>
+            </div>
+          \`
+          : ''
+        }
+
         <div class="section">
           <div class="section-title">Git Configuration</div>
           <div class="info-grid">
@@ -930,6 +1043,10 @@ export class PanelProvider {
       vscode.postMessage({ type: 'deleteProfile', payload: { id } });
       selectedId = null;
       showWelcome();
+    }
+
+    function convertToSsh() {
+      vscode.postMessage({ type: 'convertToSsh' });
     }
 
     function testConn(id, btn) {
